@@ -1,28 +1,40 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Flowchart Planner</title>
+
 <style>
+*{
+    box-sizing:border-box;
+}
+
 body{
     margin:0;
-    height:100vh;
-    display:flex;
-    flex-direction:column;
+    min-height:200vh; /* Allows scrolling */
     background:#eee;
     font-family:sans-serif;
 }
+
 canvas{
-    flex:1;
+    display:block;
     background:#fff;
     touch-action:none;
 }
-div{
+
+.toolbar{
+    position:fixed;
+    bottom:0;
+    left:0;
+    width:100%;
     display:flex;
+    z-index:10;
 }
+
 button{
     flex:1;
-    padding:12px;
+    padding:14px;
     font-size:16px;
 }
 </style>
@@ -31,81 +43,130 @@ button{
 
 <canvas id="c"></canvas>
 
-<div>
+<div class="toolbar">
     <button id="tool">Eraser</button>
     <button id="save">Save</button>
 </div>
 
 <script>
-const c=document.getElementById("c"),
-x=c.getContext("2d"),
-tool=document.getElementById("tool"),
-save=document.getElementById("save");
+const c = document.getElementById("c");
+const x = c.getContext("2d");
 
-let erase=false;
+const tool = document.getElementById("tool");
+const save = document.getElementById("save");
+
+let erase = false;
+let draw = false;
+let px, py;
 
 function resize(){
-    const img=x.getImageData(0,0,c.width,c.height);
-    c.width=innerWidth;
-    c.height=innerHeight-document.querySelector("div").offsetHeight;
-    x.putImageData(img,0,0);
-    x.lineCap="round";
-    x.strokeStyle="#000";
-}
-resize();
-addEventListener("resize",resize);
 
-let draw=false,px,py;
+    const img =
+        c.width && c.height
+        ? x.getImageData(0,0,c.width,c.height)
+        : null;
+
+    c.width = window.innerWidth;
+    c.height = document.body.scrollHeight - document.querySelector(".toolbar").offsetHeight;
+
+    if(img){
+        x.putImageData(img,0,0);
+    }
+
+    x.lineCap = "round";
+    x.lineJoin = "round";
+    x.strokeStyle = "#000";
+}
+
+resize();
+window.addEventListener("resize", resize);
 
 function pos(e){
-    const r=c.getBoundingClientRect();
-    const t=e.touches?e.touches[0]:e;
-    return[t.clientX-r.left,t.clientY-r.top];
+    const r = c.getBoundingClientRect();
+    const t = e.touches ? e.touches[0] : e;
+
+    return [
+        t.clientX - r.left,
+        t.clientY - r.top
+    ];
 }
 
 function start(e){
-    draw=true;
-    [px,py]=pos(e);
+    draw = true;
+    [px,py] = pos(e);
+}
+
+function autoScroll(clientY){
+
+    const edge = 80;
+    const speed = 12;
+
+    if(clientY > window.innerHeight - edge){
+        window.scrollBy(0,speed);
+    }
+    else if(clientY < edge){
+        window.scrollBy(0,-speed);
+    }
 }
 
 function move(e){
-    if(!draw)return;
-    e.preventDefault();
-    const[nx,ny]=pos(e);
 
-    x.globalCompositeOperation=erase?"destination-out":"source-over";
-    x.lineWidth=erase?18:2;
+    if(!draw) return;
+
+    e.preventDefault();
+
+    const [nx,ny] = pos(e);
+
+    const clientY = e.touches
+        ? e.touches[0].clientY
+        : e.clientY;
+
+    autoScroll(clientY);
+
+    x.globalCompositeOperation = erase
+        ? "destination-out"
+        : "source-over";
+
+    x.lineWidth = erase ? 18 : 2;
 
     x.beginPath();
     x.moveTo(px,py);
     x.lineTo(nx,ny);
     x.stroke();
 
-    px=nx;
-    py=ny;
+    px = nx;
+    py = ny;
 }
 
 function end(){
-    draw=false;
+    draw = false;
 }
 
-c.onmousedown=start;
-c.onmousemove=move;
-window.onmouseup=end;
+c.addEventListener("mousedown",start);
+c.addEventListener("mousemove",move);
+window.addEventListener("mouseup",end);
 
-c.ontouchstart=start;
-c.ontouchmove=move;
-window.ontouchend=end;
+c.addEventListener("touchstart",start,{passive:false});
+c.addEventListener("touchmove",move,{passive:false});
+window.addEventListener("touchend",end);
 
-tool.onclick=()=>{
-    erase=!erase;
-    tool.textContent=erase?"Pencil":"Eraser";
+tool.onclick = ()=>{
+
+    erase = !erase;
+
+    tool.textContent = erase
+        ? "Pencil"
+        : "Eraser";
 };
 
-save.onclick=()=>{
-    const a=document.createElement("a");
-    a.href=c.toDataURL("image/png");
-    a.download="flowchart.png";
+save.onclick = ()=>{
+
+    const a = document.createElement("a");
+
+    a.href = c.toDataURL("image/png");
+
+    a.download = "flowchart.png";
+
     a.click();
 };
 </script>
