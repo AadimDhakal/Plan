@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Flowchart Planner</title>
+<style>
+body{margin:0;height:100vh;display:flex;flex-direction:column;background:#eee;font-family:sans-serif}
+canvas{flex:1;background:#fff;touch-action:none}
+button{padding:12px;font-size:16px}
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+<button id="save">Save</button>
+
+<script>
+const c=document.getElementById("c"),x=c.getContext("2d");
+function resize(){
+c.width=innerWidth;
+c.height=innerHeight-document.querySelector("button").offsetHeight;
+x.lineWidth=2;
+x.lineCap="round";
+x.strokeStyle="#000";
+}
+resize();
+addEventListener("resize",resize);
+
+let draw=false,px,py;
+
+function pos(e){
+const r=c.getBoundingClientRect(),t=e.touches?e.touches[0]:e;
+return[t.clientX-r.left,t.clientY-r.top];
+}
+
+function start(e){
+draw=true;
+[px,py]=pos(e);
+}
+
+function move(e){
+if(!draw)return;
+e.preventDefault();
+const[nx,ny]=pos(e);
+x.beginPath();
+x.moveTo(px,py);
+x.lineTo(nx,ny);
+x.stroke();
+px=nx;
+py=ny;
+}
+
+function end(){draw=false;}
+
+c.onmousedown=start;
+c.onmousemove=move;
+onmouseup=end;
+
+c.ontouchstart=start;
+c.ontouchmove=move;
+ontouchend=end;
+
+save.onclick=()=>{
+const a=document.createElement("a");
+a.href=c.toDataURL("image/png");
+a.download="flowchart.png";
+a.click();
+};
+</script>
+
+</body>
+</html>
