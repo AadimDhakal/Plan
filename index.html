@@ -2,174 +2,492 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Flowchart Planner</title>
-
 <style>
-*{
-    box-sizing:border-box;
-}
-
-body{
+  :root{
+    --bar-bg:#1f2430;
+    --bar-fg:#e7e9ee;
+    --accent:#2dd4bf;
+    --canvas-bg:#ffffff;
+    --page-bg:#eef0f3;
+    --topbar-h:52px;
+    --bottombar-h:56px;
+  }
+  *{ box-sizing:border-box; }
+  html,body{
     margin:0;
-    min-height:200vh; /* Allows scrolling */
-    background:#eee;
-    font-family:sans-serif;
-}
-
-canvas{
+    background:var(--page-bg);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  }
+  body{
+    padding-top:var(--topbar-h);
+    padding-bottom:var(--bottombar-h);
+    min-height:100vh;
+  }
+  #wrap{
     display:block;
-    background:#fff;
+  }
+  canvas{
+    display:block;
+    background:var(--canvas-bg);
     touch-action:none;
-}
-
-.toolbar{
-    position:fixed;
-    bottom:0;
-    left:0;
     width:100%;
-    display:flex;
-    z-index:10;
-}
+  }
 
-button{
+  /* --- Top bar: color / width / history / file actions --- */
+  .topbar{
+    position:fixed;
+    top:0; left:0; width:100%;
+    height:var(--topbar-h);
+    background:var(--bar-bg);
+    color:var(--bar-fg);
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:0 10px;
+    z-index:20;
+    overflow-x:auto;
+    white-space:nowrap;
+  }
+  .swatches{ display:flex; gap:6px; flex-shrink:0; }
+  .swatch{
+    width:22px; height:22px;
+    border-radius:50%;
+    border:2px solid rgba(255,255,255,0.25);
+    cursor:pointer;
+    flex-shrink:0;
+    padding:0;
+  }
+  .swatch.active{ border-color:var(--accent); }
+  input[type="color"]{
+    width:26px; height:26px;
+    border:none; background:none;
+    padding:0; cursor:pointer;
+    flex-shrink:0;
+  }
+  input[type="range"]{ width:80px; flex-shrink:0; }
+  .divider{
+    width:1px; height:28px;
+    background:rgba(255,255,255,0.15);
+    flex-shrink:0;
+  }
+  .iconbtn{
+    background:none;
+    border:1px solid rgba(255,255,255,0.2);
+    color:var(--bar-fg);
+    border-radius:6px;
+    padding:6px 10px;
+    font-size:14px;
+    cursor:pointer;
+    flex-shrink:0;
+  }
+  .iconbtn:disabled{ opacity:0.35; cursor:default; }
+  .iconbtn:active:not(:disabled){ background:rgba(255,255,255,0.12); }
+
+  /* --- Bottom bar: tool selection --- */
+  .toolbar{
+    position:fixed;
+    bottom:0; left:0; width:100%;
+    height:var(--bottombar-h);
+    display:flex;
+    background:var(--bar-bg);
+    z-index:20;
+  }
+  .toolbtn{
     flex:1;
-    padding:14px;
-    font-size:16px;
-}
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:2px;
+    background:none;
+    border:none;
+    border-top:3px solid transparent;
+    color:var(--bar-fg);
+    font-size:11px;
+    padding:6px 2px;
+    cursor:pointer;
+  }
+  .toolbtn .glyph{ font-size:18px; line-height:1; }
+  .toolbtn.active{
+    border-top-color:var(--accent);
+    color:var(--accent);
+  }
+  #fileInput{ display:none; }
 </style>
 </head>
 <body>
 
+<div class="topbar">
+  <div class="swatches" id="swatches"></div>
+  <input type="color" id="customColor" title="Custom color">
+  <div class="divider"></div>
+  <input type="range" id="width" min="1" max="28" value="3" title="Stroke width">
+  <div class="divider"></div>
+  <button class="iconbtn" id="undo" disabled>Undo</button>
+  <button class="iconbtn" id="redo" disabled>Redo</button>
+  <div class="divider"></div>
+  <button class="iconbtn" id="clear">Clear</button>
+  <button class="iconbtn" id="open">Open</button>
+  <button class="iconbtn" id="save">Save</button>
+  <button class="iconbtn" id="exportPng">PNG</button>
+  <input type="file" id="fileInput" accept="application/json">
+</div>
+
 <canvas id="c"></canvas>
 
 <div class="toolbar">
-    <button id="tool">Eraser</button>
-    <button id="save">Save</button>
+  <button class="toolbtn active" data-tool="pencil"><span class="glyph">✏️</span>Pencil</button>
+  <button class="toolbtn" data-tool="eraser"><span class="glyph">🧽</span>Eraser</button>
+  <button class="toolbtn" data-tool="rect"><span class="glyph">▭</span>Box</button>
+  <button class="toolbtn" data-tool="diamond"><span class="glyph">◇</span>Decision</button>
+  <button class="toolbtn" data-tool="arrow"><span class="glyph">→</span>Arrow</button>
+  <button class="toolbtn" data-tool="text"><span class="glyph">T</span>Text</button>
 </div>
 
 <script>
-const c = document.getElementById("c");
-const x = c.getContext("2d");
+(function(){
+  "use strict";
 
-const tool = document.getElementById("tool");
-const save = document.getElementById("save");
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
 
-let erase = false;
-let draw = false;
-let px, py;
+  const PALETTE = ["#111827","#dc2626","#2563eb","#16a34a","#d97706","#7c3aed"];
+  const GROW_STEP = 480;   // px added to canvas height when the user draws near the bottom edge
+  const EDGE_ZONE = 90;    // px from an edge that triggers auto-scroll / auto-grow
 
-function resize(){
+  let dpr = Math.max(1, window.devicePixelRatio || 1);
+  let logicalWidth = window.innerWidth;
+  let logicalHeight = Math.max(window.innerHeight * 2, 900);
 
-    const img =
-        c.width && c.height
-        ? x.getImageData(0,0,c.width,c.height)
-        : null;
+  let elements = [];   // committed, finished shapes/strokes
+  let redoStack = [];
+  let currentEl = null; // shape/stroke currently being drawn
 
-    c.width = window.innerWidth;
-    c.height = document.body.scrollHeight - document.querySelector(".toolbar").offsetHeight;
+  let tool = "pencil";
+  let color = PALETTE[0];
+  let strokeWidth = 3;
 
-    if(img){
-        x.putImageData(img,0,0);
+  let activePointerId = null;
+  let startX = 0, startY = 0;
+
+  // ---------- sizing ----------
+  function applyBodyHeight(){
+    document.body.style.minHeight =
+      (logicalHeight + document.querySelector(".topbar").offsetHeight +
+       document.querySelector(".toolbar").offsetHeight) + "px";
+  }
+
+  function resizeCanvas(){
+    logicalWidth = window.innerWidth;
+    canvas.style.width = logicalWidth + "px";
+    canvas.style.height = logicalHeight + "px";
+    canvas.width = Math.round(logicalWidth * dpr);
+    canvas.height = Math.round(logicalHeight * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    applyBodyHeight();
+    redraw();
+  }
+
+  function growCanvasTo(newHeight){
+    if(newHeight <= logicalHeight) return;
+    logicalHeight = newHeight;
+    resizeCanvas();
+  }
+
+  window.addEventListener("resize", resizeCanvas);
+  resizeCanvas();
+
+  // ---------- element drawing ----------
+  function strokePath(el){
+    if(el.points.length < 2){
+      // a single tap: draw a dot
+      const p = el.points[0];
+      ctx.beginPath();
+      ctx.arc(p[0], p[1], el.width / 2, 0, Math.PI * 2);
+      ctx.fillStyle = el.color;
+      ctx.fill();
+      return;
     }
-
-    x.lineCap = "round";
-    x.lineJoin = "round";
-    x.strokeStyle = "#000";
-}
-
-resize();
-window.addEventListener("resize", resize);
-
-function pos(e){
-    const r = c.getBoundingClientRect();
-    const t = e.touches ? e.touches[0] : e;
-
-    return [
-        t.clientX - r.left,
-        t.clientY - r.top
-    ];
-}
-
-function start(e){
-    draw = true;
-    [px,py] = pos(e);
-}
-
-function autoScroll(clientY){
-
-    const edge = 80;
-    const speed = 12;
-
-    if(clientY > window.innerHeight - edge){
-        window.scrollBy(0,speed);
+    ctx.globalCompositeOperation = el.erase ? "destination-out" : "source-over";
+    ctx.strokeStyle = el.color;
+    ctx.lineWidth = el.width;
+    ctx.beginPath();
+    ctx.moveTo(el.points[0][0], el.points[0][1]);
+    for(let i = 1; i < el.points.length; i++){
+      ctx.lineTo(el.points[i][0], el.points[i][1]);
     }
-    else if(clientY < edge){
-        window.scrollBy(0,-speed);
+    ctx.stroke();
+    ctx.globalCompositeOperation = "source-over";
+  }
+
+  function drawArrowHead(x1, y1, x2, y2, width, color){
+    const angle = Math.atan2(y2 - y1, x2 - x1);
+    const headLen = Math.max(10, width * 3);
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI / 7), y2 - headLen * Math.sin(angle - Math.PI / 7));
+    ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI / 7), y2 - headLen * Math.sin(angle + Math.PI / 7));
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+
+  function drawElement(el){
+    ctx.strokeStyle = el.color;
+    ctx.fillStyle = el.color;
+    ctx.lineWidth = el.width;
+
+    switch(el.type){
+      case "stroke":
+        strokePath(el);
+        break;
+      case "rect": {
+        const x = Math.min(el.x1, el.x2), y = Math.min(el.y1, el.y2);
+        const w = Math.abs(el.x2 - el.x1), h = Math.abs(el.y2 - el.y1);
+        ctx.strokeRect(x, y, w, h);
+        break;
+      }
+      case "diamond": {
+        const x = Math.min(el.x1, el.x2), y = Math.min(el.y1, el.y2);
+        const w = Math.abs(el.x2 - el.x1), h = Math.abs(el.y2 - el.y1);
+        const cx = x + w / 2, cy = y + h / 2;
+        ctx.beginPath();
+        ctx.moveTo(cx, y);
+        ctx.lineTo(x + w, cy);
+        ctx.lineTo(cx, y + h);
+        ctx.lineTo(x, cy);
+        ctx.closePath();
+        ctx.stroke();
+        break;
+      }
+      case "arrow": {
+        ctx.beginPath();
+        ctx.moveTo(el.x1, el.y1);
+        ctx.lineTo(el.x2, el.y2);
+        ctx.stroke();
+        drawArrowHead(el.x1, el.y1, el.x2, el.y2, el.width, el.color);
+        break;
+      }
+      case "text": {
+        const fontSize = 14 + el.width * 2;
+        ctx.font = fontSize + "px sans-serif";
+        ctx.textBaseline = "top";
+        ctx.fillText(el.text, el.x, el.y);
+        break;
+      }
     }
-}
+  }
 
-function move(e){
+  function redraw(){
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, logicalWidth, logicalHeight);
+    for(const el of elements) drawElement(el);
+    if(currentEl) drawElement(currentEl);
+    ctx.restore();
+  }
 
-    if(!draw) return;
+  // ---------- history ----------
+  function updateHistoryButtons(){
+    document.getElementById("undo").disabled = elements.length === 0;
+    document.getElementById("redo").disabled = redoStack.length === 0;
+  }
 
+  function commit(el){
+    elements.push(el);
+    redoStack = [];
+    updateHistoryButtons();
+    redraw();
+  }
+
+  document.getElementById("undo").onclick = () => {
+    if(!elements.length) return;
+    redoStack.push(elements.pop());
+    updateHistoryButtons();
+    redraw();
+  };
+  document.getElementById("redo").onclick = () => {
+    if(!redoStack.length) return;
+    elements.push(redoStack.pop());
+    updateHistoryButtons();
+    redraw();
+  };
+  document.getElementById("clear").onclick = () => {
+    if(!elements.length) return;
+    if(!confirm("Clear the whole board? This cannot be undone.")) return;
+    elements = [];
+    redoStack = [];
+    updateHistoryButtons();
+    redraw();
+  };
+
+  // ---------- toolbar: tools ----------
+  document.querySelectorAll(".toolbtn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".toolbtn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      tool = btn.dataset.tool;
+    });
+  });
+
+  // ---------- toolbar: color & width ----------
+  const swatchWrap = document.getElementById("swatches");
+  PALETTE.forEach((c, i) => {
+    const b = document.createElement("button");
+    b.className = "swatch" + (i === 0 ? " active" : "");
+    b.style.background = c;
+    b.addEventListener("click", () => {
+      color = c;
+      document.querySelectorAll(".swatch").forEach(s => s.classList.remove("active"));
+      b.classList.add("active");
+    });
+    swatchWrap.appendChild(b);
+  });
+  document.getElementById("customColor").addEventListener("input", (e) => {
+    color = e.target.value;
+    document.querySelectorAll(".swatch").forEach(s => s.classList.remove("active"));
+  });
+  document.getElementById("width").addEventListener("input", (e) => {
+    strokeWidth = Number(e.target.value);
+  });
+
+  // ---------- pointer helpers ----------
+  function pos(e){
+    const r = canvas.getBoundingClientRect();
+    return [e.clientX - r.left, e.clientY - r.top];
+  }
+
+  function autoScrollAndGrow(clientY, canvasY){
+    if(clientY > window.innerHeight - EDGE_ZONE){
+      window.scrollBy(0, 14);
+    } else if(clientY < EDGE_ZONE + 52){ // keep clear of the fixed top bar
+      window.scrollBy(0, -14);
+    }
+    if(canvasY > logicalHeight - EDGE_ZONE){
+      growCanvasTo(logicalHeight + GROW_STEP);
+    }
+  }
+
+  // ---------- drawing interaction ----------
+  function pointerDown(e){
+    if(activePointerId !== null) return; // ignore extra touches
+    activePointerId = e.pointerId;
+    canvas.setPointerCapture(e.pointerId);
+    const [x, y] = pos(e);
+    startX = x; startY = y;
+
+    if(tool === "pencil" || tool === "eraser"){
+      currentEl = { type: "stroke", color, width: tool === "eraser" ? Math.max(strokeWidth * 4, 16) : strokeWidth, erase: tool === "eraser", points: [[x, y]] };
+    } else if(tool === "rect" || tool === "diamond" || tool === "arrow"){
+      currentEl = { type: tool, color, width: strokeWidth, x1: x, y1: y, x2: x, y2: y };
+    } else if(tool === "text"){
+      const text = prompt("Text:");
+      if(text && text.trim()){
+        commit({ type: "text", color, width: strokeWidth, x, y, text: text.trim() });
+      }
+      activePointerId = null;
+      return;
+    }
+    redraw();
+  }
+
+  function pointerMove(e){
+    if(e.pointerId !== activePointerId || !currentEl) return;
     e.preventDefault();
+    const [x, y] = pos(e);
+    autoScrollAndGrow(e.clientY, y);
 
-    const [nx,ny] = pos(e);
+    if(currentEl.type === "stroke"){
+      currentEl.points.push([x, y]);
+    } else {
+      currentEl.x2 = x;
+      currentEl.y2 = y;
+    }
+    redraw();
+  }
 
-    const clientY = e.touches
-        ? e.touches[0].clientY
-        : e.clientY;
+  function pointerUp(e){
+    if(e.pointerId !== activePointerId) return;
+    activePointerId = null;
+    if(currentEl){
+      const el = currentEl;
+      currentEl = null;
+      commit(el);
+    }
+  }
 
-    autoScroll(clientY);
+  canvas.addEventListener("pointerdown", pointerDown);
+  canvas.addEventListener("pointermove", pointerMove);
+  window.addEventListener("pointerup", pointerUp);
+  window.addEventListener("pointercancel", pointerUp);
 
-    x.globalCompositeOperation = erase
-        ? "destination-out"
-        : "source-over";
+  // ---------- keyboard shortcuts ----------
+  const SHORTCUTS = { p: "pencil", e: "eraser", r: "rect", d: "diamond", a: "arrow", t: "text" };
+  window.addEventListener("keydown", (e) => {
+    if(e.ctrlKey || e.metaKey){
+      if(e.key.toLowerCase() === "z"){
+        e.preventDefault();
+        e.shiftKey ? document.getElementById("redo").click() : document.getElementById("undo").click();
+      } else if(e.key.toLowerCase() === "y"){
+        e.preventDefault();
+        document.getElementById("redo").click();
+      }
+      return;
+    }
+    const t = SHORTCUTS[e.key.toLowerCase()];
+    if(t){
+      const btn = document.querySelector('.toolbtn[data-tool="' + t + '"]');
+      if(btn) btn.click();
+    }
+  });
 
-    x.lineWidth = erase ? 18 : 2;
-
-    x.beginPath();
-    x.moveTo(px,py);
-    x.lineTo(nx,ny);
-    x.stroke();
-
-    px = nx;
-    py = ny;
-}
-
-function end(){
-    draw = false;
-}
-
-c.addEventListener("mousedown",start);
-c.addEventListener("mousemove",move);
-window.addEventListener("mouseup",end);
-
-c.addEventListener("touchstart",start,{passive:false});
-c.addEventListener("touchmove",move,{passive:false});
-window.addEventListener("touchend",end);
-
-tool.onclick = ()=>{
-
-    erase = !erase;
-
-    tool.textContent = erase
-        ? "Pencil"
-        : "Eraser";
-};
-
-save.onclick = ()=>{
-
+  // ---------- save / load / export ----------
+  function download(filename, blob){
     const a = document.createElement("a");
-
-    a.href = c.toDataURL("image/png");
-
-    a.download = "flowchart.png";
-
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
     a.click();
-};
-</script>
+    URL.revokeObjectURL(a.href);
+  }
 
+  document.getElementById("exportPng").onclick = () => {
+    canvas.toBlob(blob => download("flowchart.png", blob));
+  };
+
+  document.getElementById("save").onclick = () => {
+    const data = JSON.stringify({ version: 1, logicalHeight, elements });
+    download("flowchart.json", new Blob([data], { type: "application/json" }));
+  };
+
+  const fileInput = document.getElementById("fileInput");
+  document.getElementById("open").onclick = () => fileInput.click();
+  fileInput.addEventListener("change", () => {
+    const file = fileInput.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try{
+        const data = JSON.parse(reader.result);
+        if(!Array.isArray(data.elements)) throw new Error("Invalid file");
+        elements = data.elements;
+        redoStack = [];
+        growCanvasTo(data.logicalHeight || logicalHeight);
+        updateHistoryButtons();
+        redraw();
+      }catch(err){
+        alert("Couldn't open that file: " + err.message);
+      }
+    };
+    reader.readAsText(file);
+    fileInput.value = "";
+  });
+
+  updateHistoryButtons();
+})();
+</script>
 </body>
 </html>
